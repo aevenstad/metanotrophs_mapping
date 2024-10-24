@@ -39,6 +39,9 @@ Raw fastq files and metadata were downloaded for the SRA accessions. Since the i
 From the **113,227** samples **133,057** sequencing runs were downloaded.
 
 
+## 3. Process SRA RUN libraries
+All downloaded sequencing libraries were processeed with [`taxprofiler`](https://nf-co.re/taxprofiler/1.1.7/) to remove adapter sequence and perform read merging. No actual profiling was performed and the pipeline was only used for the processing and merging of read pairs.
+
 
 
 
