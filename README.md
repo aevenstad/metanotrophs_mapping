@@ -42,8 +42,17 @@ From the **113,227** samples **133,057** sequencing runs were downloaded.
 ## 3. Process SRA RUN libraries
 All downloaded sequencing libraries were processeed with [`taxprofiler`](https://nf-co.re/taxprofiler/1.1.7/) to remove adapter sequence and perform read merging. No actual profiling was performed and the pipeline was only used for the processing and merging of read pairs.
 
+In total, **131,826** SRA RUNs completed the ``taxprofiler` pipeline. 
 
+## 4. BLAST search against methanotrophs 16S
+The next step was to align all sequencing libraries against the set of reference 16S sequence from the methanotroph target group. 
 
+With a custom script fastq files were first catenated into parts of ~5 GiB of data before converting to fasta format. Each part was then used as a query in a BLASTn search against the reference database (methanotroph 16S sequences). The following blast options was used:
+* e-value: 1e-100 (in order to remove shorter hits the evalue was set very low)
+* percent identity: 99
+* max number of hsps: 1 (only keep the best alignment per query reference pair)
+
+The BLAST results was catenated into one file and further filtered based on alignment length to remove hits shorter than 250 bp.
 
 
 
