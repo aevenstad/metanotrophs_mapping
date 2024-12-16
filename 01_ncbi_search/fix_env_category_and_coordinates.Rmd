@@ -1,32 +1,50 @@
 ---
-title: "Geographic Coordinates Cleanup"
+title: "Geographic Coordinates Cleanup and add environmental category"
 author: "Your Name"
 date: "`r Sys.Date()`"
 output: html_document
 ---
 
 # Set-up
-```{r}
+```{r, warning=FALSE}
 # Load necessary libraries
 library(dplyr)
 library(stringr)
 library(tidyr)
 
 # Set working directory (adjust path as needed)
-setwd("/Users/aev021/OneDrive - UiT Office 365/UiT/projects/methanotrophs_project")
+setwd("./")
 ```
 
-
-# Load Tilman filtered accessions
+# Load summary table
 ```{r}
-tilman_data <- read.table(
-  "ncbi/ncbi_search_10_06/entries_with_envir_category.txt",
+summary_table <- read.table(
+  "biosample_summary_lat_lon.txt",
   sep = "\t",
   header = TRUE,
   stringsAsFactors = FALSE,
   fill = TRUE,
   quote = ""
 )
+```
+
+
+# Load environmental categories
+```{r}
+env_categories <- read.table(
+  "biosample_environmental_category.tsv",
+  sep = "\t",
+  header = TRUE,
+  stringsAsFactors = FALSE,
+  fill = TRUE,
+  quote = ""
+)
+```
+
+
+# Add environmental category to summary table
+```{r}
+summary_table_cat <- inner_join(summary_table, env_categories, by = "BioSample") 
 ```
 
 # Extract coordinates
@@ -36,8 +54,8 @@ Separate coordinates in the correct format and those that needs conversion/clean
 pattern <- "^(-?\\d+(\\.\\d+)?) [NS] (-?\\d+(\\.\\d+)?) [EW]$"
 
 # Separate good and bad coordinates based on the pattern
-bad_coords <- tilman_data[!str_detect(tilman_data$Latitude_and_longitude, pattern), ]
-good_coords <- tilman_data[str_detect(tilman_data$Latitude_and_longitude, pattern), ]
+bad_coords <- summary_table_cat[!str_detect(summary_table_cat$Latitude_and_longitude, pattern), ]
+good_coords <- summary_table_cat[str_detect(summary_table_cat$Latitude_and_longitude, pattern), ]
 ```
 
 
@@ -116,7 +134,7 @@ cat("Number of missing Longitudes:", sum(is.na(final_coords$Longitude)), "\n")
 
 # Write summary table to file
 ```{r}
-write.table(final_coords, file = "summary_table_clean_coordinates.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+write.table(final_coords, file = "./summary_table_final.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
 ```
 
 
