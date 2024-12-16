@@ -1,0 +1,143 @@
+---
+title: "Geographic Coordinates Cleanup"
+author: "Your Name"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Set-up
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+# Set working directory (adjust path as needed)
+setwd("/Users/aev021/OneDrive - UiT Office 365/UiT/projects/methanotrophs_project")
+```
+
+
+# Load Tilman filtered accessions
+```{r}
+tilman_data <- read.table(
+  "ncbi/ncbi_search_10_06/entries_with_envir_category.txt",
+  sep = "\t",
+  header = TRUE,
+  stringsAsFactors = FALSE,
+  fill = TRUE,
+  quote = ""
+)
+```
+
+# Extract coordinates
+Separate coordinates in the correct format and those that needs conversion/cleaning
+```{r}
+# Define regex pattern for valid decimal degrees with directions
+pattern <- "^(-?\\d+(\\.\\d+)?) [NS] (-?\\d+(\\.\\d+)?) [EW]$"
+
+# Separate good and bad coordinates based on the pattern
+bad_coords <- tilman_data[!str_detect(tilman_data$Latitude_and_longitude, pattern), ]
+good_coords <- tilman_data[str_detect(tilman_data$Latitude_and_longitude, pattern), ]
+```
+
+
+# Filter and clean bad coordinates
+```{r}
+# Remove special characters, extra text and filter out incomplete coordinates
+cleaned_coords <- bad_coords %>%
+  filter(!Latitude_and_longitude %in% c(
+    "34?EEE?EEE57'10.5", "34?EEE?EEE57'19.9", "34?EEE?EEE58'13.3",
+    "34?EEE?EEE58'10.7", "34?EEE?EEE57'03.0", "34?EEE?EEE58'16.2",
+    "30<U+00B0>14'54", "30<U+00B0>12'47", "30<U+00B0>16'45",
+    "+34.109694 -88.259694, +34.120831 -88.2625, +34.127149 -88.265218",
+    "-139.48", "-167.0084", "-129.35", "-137.52", "-130.83", "-167.0084"
+  )) %>%
+  filter(!grepl("63<U\\+00C1>|34<U\\+00B0>", Latitude_and_longitude)) %>%
+  filter(Latitude_and_longitude != "") %>%
+  mutate(Latitude_and_longitude = Latitude_and_longitude %>%
+           gsub("<U\\+.*?>", " ", .) %>%
+           gsub("lat|lon|VT grassland: |NH grassland: |VT forest: |NH forest:", "", .) %>%
+           gsub("[/_;'?=]", " ", .) %>%
+           str_squish())
+
+#unique(cleaned_coords$Latitude_and_longitude)
+# The list of unique coordinates was given to chatGPT and after some trial and error 
+# all were converted to decimal degree
+
+# List of converted coordinates
+converted_coords <- c(
+  "51.5333 5.8500", "52.0667 5.7500", "51.6833 5.8400", "52.1167 6.5667", "51.9000 5.8500",
+  "35.5500 25.4667", "52.0500 5.0667", "-32.5029 -156.0090", "-32.4937 -163.0030", "-32.4798 -164.0100",
+  "-32.5075 -151.0030", "-32.4951 -154.0040", "-32.4955 -154.9990", "-32.4927 -157.0100", "-32.4891 -158.0130",
+  "-32.5035 -160.9990", "-32.5039 -162.0150", "-32.5055 -164.9910", "-32.4945 -171.0050", "-32.4960 -169.0040",
+  "-32.4944 -168.0100", "-32.4944 -157.0100", "-32.4969 -158.0130", "-32.5008 -160.9990", "-32.5080 -162.0150",
+  "-32.5037 -164.9910", "-32.4959 -171.0050", "-32.4923 -169.0040", "-32.4977 -168.0100", "45.0000 -93.0000",
+  "44.3200 -72.1295", "44.0300 -72.1302", "43.5772 -71.9828", "43.5753 -71.9824", "53.3814 -1.4883",
+  "-6.4270 -50.0511", "32.3667 -110.9300", "47.4292 -61.8181", "47.4325 -61.8135", "47.4286 -61.8139",
+  "47.4206 -61.8250", "44.7450 -92.7983", "44.7483 -92.8050", "44.7450 -92.8500", "45.4200 -94.0417",
+  "45.5467 -94.1450", "47.3467 -95.1817", "49.5134 6.0179","63.8784 -149.2533",
+  "41.7006 NA", "43.7167 -78.0275", "43.5167 -79.0800", "44.7569 -86.9668", "42.7346 -86.9996",
+  "44.3667 -82.8333", "45.5169 -83.4175", "44.7400 -82.0603", "44.7614 -82.7836",
+  "44.9033 -93.1900", "43.8567 -91.3033", "44.9167 -93.1283", "44.8836 -93.1733"
+)
+
+# Match converted coordinates with cleaned ones
+matching_table <- data.frame(
+  Original = unique(cleaned_coords$Latitude_and_longitude),
+  Converted = converted_coords
+)
+```
+
+
+# Merge updated coordinates
+```{r}
+updated_coords <- merge(cleaned_coords, matching_table, by.x = "Latitude_and_longitude", by.y = "Original", all.x = TRUE) %>%
+  separate(Converted, into = c("Latitude", "Longitude"), sep = " ", convert = TRUE)
+
+# Process good coordinates
+processed_good_coords <- good_coords %>%
+  separate(Latitude_and_longitude, into = c("Latitude", "dir_lat", "Longitude", "dir_lon"), sep = " ", remove = FALSE) %>%
+  mutate(
+    Latitude = as.numeric(Latitude) * ifelse(dir_lat == "S", -1, 1),
+    Longitude = as.numeric(Longitude) * ifelse(dir_lon == "W", -1, 1)
+  ) %>%
+  select(-dir_lat, -dir_lon)
+
+# Combine good and cleaned coordinates
+final_coords <- bind_rows(processed_good_coords, updated_coords) %>%
+  filter(!is.na(Longitude)) %>%
+  filter(!is.na(Latitude))
+
+# Count missing values in Latitude and Longitude
+cat("Number of missing Latitudes:", sum(is.na(final_coords$Latitude)), "\n")
+cat("Number of missing Longitudes:", sum(is.na(final_coords$Longitude)), "\n")
+```
+
+
+# Write summary table to file
+```{r}
+write.table(final_coords, file = "summary_table_clean_coordinates.txt", row.names = FALSE, col.names = TRUE, quote = FALSE, sep = "\t")
+```
+
+
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
