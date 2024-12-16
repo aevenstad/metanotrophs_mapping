@@ -1,0 +1,251 @@
+---
+title: "Parse blast output"
+author: "Andreas Evenstad"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load packages
+```{r}
+library(tidyverse)
+library(ComplexUpset)
+getwd()
+```
+
+# Load BLAST output
+```{r}
+blast_output <- read.table("methanotrophs_all_hits.blastout", header = FALSE, sep = "\t") %>%
+  distinct()
+colnames(blast_output) = c("query", "subject", "identity", "alignment_length", "mismatches", "gap_opens", "q_start", "q_end", "s_start", "s_end", "evalue", "bit_score")
+```
+
+## Clean up subject names
+```{r}
+# Clean up species names
+blast_output <- blast_output %>%
+  mutate(subject = gsub("M.aurea_v1_16s_rRNA_1", "Methylocapsa_aurea", subject)) %>%
+  mutate(subject = gsub("Methylocapsa_gorgona_MG08_T", "Methylocapsa_gorgona", subject)) %>%
+  mutate(subject = gsub("Methylocapsa_palsarum_NE2_T_\\(KP715289\\)", "Methylocapsa_palsarum", subject)) %>%
+  mutate(subject = gsub("MROSv2_16s_rRNA_1", "Methylocystis_rosea", subject)) %>%
+  mutate(subject = gsub("M.acidiphila_16s_rRNA_1", "Methylocapsa_acidiphila", subject)) %>%
+  mutate(subject = gsub("M.acidiphila_16s_rRNA_2", "Methylocapsa_acidiphila", subject)) %>%
+  mutate(subject = gsub("Methylocella_tundrae_T4", "Methylocella_tundrae", subject)) %>%
+  mutate(subject = gsub("Methylocystis_echinoides_IMET", "Methylocystis_echinoides", subject)) %>%
+  mutate(subject = gsub("Methylocystis_parvus_OBBP", "Methylocystis_parvus", subject)) %>%
+  mutate(subject = gsub("Methyloferula_stellata_AR4", "Methyloferula_stellata", subject)) %>%
+  mutate(subject = gsub("Methylosinus_sporium_AB02", "Methylosinus_sporium", subject)) %>%
+  mutate(subject = gsub("M.trich_v2_16s_rRNA_1", "Methylosinus_trichosporium", subject))
+```
+
+
+
+# Get metadata
+## Load SRA metadata
+```{r load_biosample_metadata, echo=FALSE}
+biosample_metadata <- read.table("../01_ncbi_search/summary_table_final.tsv", 
+                header = TRUE, sep = "\t", quote="", stringsAsFactors=FALSE, fill = TRUE)
+```
+
+
+## Load SRA run and SRA sample ids
+```{r load_sra_run_sample_ids, echo=FALSE}
+sra_run_sample_ids <- read.table("../02_fetchngs/SRA_run_and_sample_accession.txt", sep = ",", header = TRUE)
+```
+
+
+## Merge the metadata with the SRA run and sample ids
+```{r merge_metadata, echo=FALSE}
+metadata <- biosample_metadata %>%
+  left_join(sra_run_sample_ids, by = c("SRA" = "secondary_sample_accession"))
+```
+
+## Add metadata to blast results
+```{r add_metadata, echo=FALSE}
+blast_output_metadata_df = blast_output %>%
+  mutate(sra_id = gsub("\\..*", "", query)) %>%
+  left_join(metadata, by = c("sra_id" = "run_accession")) %>%
+  filter(!is.na(BioSample)) %>%
+  distinct()
+```
+
+
+# Process blast results
+## Extract unique hits
+```{r}
+# Filter the data frame to only include rows where the query name appears once
+unique_query_target <- blast_output_metadata_df %>%
+  add_count(query) %>%    # Add a column 'n' with the count of each query
+  filter(n == 1) %>%      # Keep only rows where 'n' (count) is 1
+  select(-n)            # Optionally remove the count column if not needed
+
+
+# Identify queries where the subject is either M.acidiphila_16s_rRNA_1 or M.trich_v2_16s_rRNA_1
+filter_out_queries = unique_query_target %>%
+  filter(subject %in% c("Methylocapsa_acidiphila", "Methylosinus_trichosporium")) %>%
+  pull(query)
+
+# Remove species not of interest and retain the best hit for each query
+blast_output_unique_df = unique_query_target %>%
+  filter(!query %in% filter_out_queries) %>%
+  mutate(sra_id = gsub("\\..*", "", query))
+
+
+# Print number of unique queries and hits
+cat("Number of unique queries (only one hit):", length(unique(blast_output_unique_df$query)), "\n")
+cat("Number of rows (hits) for unique queries:", nrow(blast_output_unique_df), "\n")
+
+# Count the number of reads and SRAs per species
+unique_species_counts = blast_output_unique_df %>%
+  group_by(subject) %>%
+  summarise(
+    reads = n(),
+    SRAs = n_distinct(gsub("\\..*", "", query))
+  )
+
+cat("Unique hits - Number of reads and SRAs per species:\n")
+print(unique_species_counts)
+
+
+# Keep the best hit for each SRA ID-subject pair
+blast_output_unique_df = blast_output_unique_df %>%
+  group_by(sra_id, subject) %>%
+  filter(bit_score == max(bit_score)) %>%
+  distinct(sra_id, subject, .keep_all = TRUE)
+
+```
+
+## Save unique hits table
+```{r}
+write.table(blast_output_unique_df, "unique_hits_metadata.tsv", sep = "\t", quote = TRUE, row.names = FALSE, col.names = TRUE, na = "NA")
+```
+
+## Multiple hits
+```{r}
+# Multiple hits
+cat("\nProcessing multiple hits...\n")
+multiple_hits_queries = names(which(table(blast_output_metadata_df$query) > 1))
+blast_output_multiple = blast_output_metadata_df[blast_output_metadata_df$query %in% multiple_hits_queries, ] %>%
+  distinct()
+
+# Print number of queries with multiple hits
+cat("Number of queries with multiple hits:", length(multiple_hits_queries), "\n")
+cat("Number of rows (hits) for queries with multiple hits:", nrow(blast_output_multiple), "\n")
+
+# identify queries where subject is either M.acidiphila_16s_rRNA_1 or M.trich_v2_16s_rRNA_1
+filter_out_queries_multi = blast_output_multiple %>%
+  filter(subject == "Methylocapsa_acidiphila" | subject == "Methylosinus_trichosporium") %>%
+  pull(query)
+
+cat("Number of queries filtered out due to outgroup species:", length(filter_out_queries_multi), "\n")
+
+# Remove queries where subject is either M.acidiphila_16s_rRNA_1 or M.trich_v2_16s_rRNA_1
+blast_output_multiple_hits_df = blast_output_multiple %>%
+  filter(!query %in% filter_out_queries_multi) %>%
+  group_by(query, subject) %>%
+  filter(bit_score == max(bit_score)) %>%
+  distinct(query, subject, .keep_all = TRUE) %>%
+  mutate(sra_id = gsub("\\..*", "", query))
+
+# Print number of hits remaining after filtering out outgroup species and retaining best hits
+cat("Number of hits after filtering out outgroup species and retaining best hits:", nrow(blast_output_multiple_hits_df), "\n")
+
+# Count the number of reads and SRAs per species for multiple hits
+multiple_species_counts = blast_output_multiple_hits_df %>%
+  group_by(subject) %>%
+  summarise(
+    reads = n(),
+    SRAs = n_distinct(sra_id)
+  )
+
+cat("Multiple hits - Number of reads and SRAs per species:\n")
+print(multiple_species_counts)
+```
+
+
+## Save multiple hits table
+```{r}
+write.table(blast_output_multiple_hits_df, "multiple_hits_metadata.tsv", sep = "\t", quote = TRUE, row.names = FALSE, col.names = TRUE, na = "NA")
+```
+
+## Save all hits table
+```{r}
+all_hits_df <- rbind(blast_output_unique_df, blast_output_multiple_hits_df)
+
+write.table(all_hits_df, "all_hits_metadata.tsv", sep = "\t", quote = TRUE, row.names = FALSE, col.names = TRUE, na = "NA")
+```
+
+
+## Create upset plot for multiple hits matching M.acidiphila and M.trichisprium
+```{r}
+# Prepare data for upset plot
+multiple_hits_upset = blast_output_multiple %>%
+  filter(query %in% filter_out_queries_multi) %>%
+  select(query, subject) %>%
+  group_by(query, subject) %>%
+  mutate(value = 1) %>%
+  distinct() %>%
+  pivot_wider(names_from = subject, values_from = value, values_fill = 0) %>%
+  column_to_rownames(var = "query")
+
+
+
+# Create the upset plot
+png(file = "final_analysis/04_blast_16S_methanotrophs/upset_plot_outgroup_hits.png",   # The directory you want to save the file in
+    #onefile=F, # If TRUE, all plots are put in one file. If FALSE, a new file is created for each plot.
+    width = 3840, # The width of the plot in inches
+    height = 2160,
+    res = 300) # The height of the plot in inches
+
+ComplexUpset::upset(
+  multiple_hits_upset,
+  intersect = colnames(multiple_hits_upset),
+  min_size = 1,            # Minimum size for displayed intersections
+  n_intersections = 5     # Limit to top 5 intersections
+)
+
+dev.off()
+```
+
+```{r}
+# Prepare data for upset plot
+multiple_hits_upset = blast_output_multiple %>%
+  filter(!query %in% filter_out_queries_multi) %>%
+  select(query, subject) %>%
+  group_by(query, subject) %>%
+  mutate(value = 1) %>%
+  distinct() %>%
+  pivot_wider(names_from = subject, values_from = value, values_fill = 0) %>%
+  column_to_rownames(var = "query")
+
+# Create the upset plot
+png(file = "upset_plot_for_multiple_hits.png",   # The directory you want to save the file in
+    #onefile=F, # If TRUE, all plots are put in one file. If FALSE, a new file is created for each plot.
+    width = 3840, # The width of the plot in inches
+    height = 2160,
+    res = 300) # The height of the plot in inches
+
+ComplexUpset::upset(
+  multiple_hits_upset,
+  intersect = colnames(multiple_hits_upset),
+  min_size = 1,            # Minimum size for displayed intersections
+  n_intersections = 5     # Limit to top 5 intersections
+)
+
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
