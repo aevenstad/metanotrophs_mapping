@@ -1,0 +1,3 @@
+tool,db_name,db_params,db_path
+kraken2,db2,--quick,/cluster/shared/databases/Kraken2/latest/standard/
+metaphlan,db1,,/cluster/shared/databases/metaphlan3/latest/
