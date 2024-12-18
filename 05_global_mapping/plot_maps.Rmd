@@ -1,0 +1,244 @@
+---
+title: "Global mapping atmMOB"   # title of the document
+author: "Andreas Evenstad"           # author of the document
+date: "`r Sys.Date()`"        # print current date to report
+output:                       # options for output format
+  html_document:              # set to html_document for HTML output
+    toc: true                 # table of contents
+    toc_float: true           # floating table of contents
+    toc_depth: 2              # depth of table of contents
+    df_print: paged           # print data frames in paged format
+    number_sections: true     # number sections
+    theme: flatly             # set theme for document
+    includes:
+      in_header: styles.css   # include custom css file for styling of document (file needs to be in same directory as Rmarkdown file)
+---
+
+
+# Set up!
+## Global options
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Load packages
+```{r}
+library(maps)
+library(mapdata)
+library(RColorBrewer)
+library(grDevices)
+library(UpSetR)
+library(tidyverse)
+library(ggplot2)
+library(sf)
+```
+
+# Load data
+```{r}
+unique_hits = read.table("../04_blast_16S_methanotrophs/unique_hits_metadata.tsv", sep = "\t", header = TRUE)
+grouped_hits = read.table("../04_blast_16S_methanotrophs/multiple_hits_metadata.tsv", sep = "\t", header = TRUE)
+all_hits = rbind(unique_hits, grouped_hits)
+
+# Convert Latitude and Longitude to numeric
+all_hits$Latitude <- as.numeric(all_hits$Latitude)
+all_hits$Longitude <- as.numeric(all_hits$Longitude)
+```
+
+
+## Split data frame according to species
+```{r}
+species_hits_split <- all_hits %>%
+  split(.$subject)
+```
+
+
+## Split data frame acccording to environmental category
+```{r}
+environment_hits_split <- all_hits %>%
+  split(.$Environmental_Category)
+```
+
+
+
+# Create global maps
+### Function for plotting
+```{r}
+plot_map <- function(filename, data, color, title) {
+  # Create map
+  png(file = filename,   # The directory you want to save the file in
+      width = 3840, # The width of the plot in inches
+      height = 2160,
+      res = 500,
+      pointsize = 8) # The height of the plot in inches
+
+  # Create the plot with R code
+  maps::map(col="#B8BCBC", border = FALSE, fill = TRUE,
+      xlim = c(-180, 180), ylim = c(-90, 90),mar = rep(0.1, 4)) #xlim and ylim give the longitudinal and latitudinal boundaries
+  #legend("top", legend = title, box.lty = 0, inset = c(0, -0.05))
+
+  for (i in c(1:nrow(data))){points(data[i, "Longitude"],
+                                     data[i,"Latitude"],
+                                     pch=16, col = color, cex = 1)}
+  
+  # Add species name as a title above the map
+  mtext(title, side = 3, line = 0.5, cex = 1.2, font = 2)
+
+  # Run dev.off() to create the file!
+  dev.off()
+}
+```
+
+```{r}
+# Define the function for plotting
+plot_map_ggplot <- function(filename, data, color_map, title) {
+  # Convert the world map to a data frame
+  world_map <- map_data("world")
+  
+  # Calculate additional information
+  num_unique_sra_ids <- length(unique(data$sra_id))
+  num_unique_lat_lon <- length(unique(data$Latitude_and_longitude))
+  
+  # Create the plot
+  p <- ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group),
+                 fill = "#B8BCBC", color = NA) +
+    geom_point(data = data, aes(x = Longitude, y = Latitude),
+               size = 1.5) +
+    scale_color_manual(values = color_map) +
+    labs(title = title,
+         color = "Environment Category",
+         subtitle = paste("Unique SRA IDs:", num_unique_sra_ids, 
+                          "| Unique Lat/Long:", num_unique_lat_lon)) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 10),
+      legend.position = "right"
+    )
+  # Save the plot
+  ggsave(filename, plot = p, width = 16, height = 9, dpi = 300)
+}
+```
+
+
+
+### Get colours
+```{r}
+# Create a four-color palette
+color_palette <- brewer.pal(9, "Dark2")
+
+# Adjust the transparency of the colors
+color_palette <- adjustcolor(color_palette, alpha.f = 0.25)
+
+# Black for grouped hits
+black = rgb(0, 0, 0, 0.3)
+```
+
+
+### Save species plots
+```{r, echo=FALSE}
+species_names <- names(species_hits_split)
+# Loop through each unique species and save the plot
+for (i in seq_along(species_names)) {
+  species_name <- species_names[i]
+  species_data <- species_hits_split[[i]]
+
+  plot_map_ggplot(
+    filename = paste0("final_analysis/05_atmMOB_global_maps/", species_name, "_global_map.png"),
+    data = species_data,
+    color = color_palette[i %% length(color_palette) + 1], # Cycle through colors if more species than colors
+    title = species_name
+  )
+}
+```
+
+
+### Save environment plots
+```{r, echo=FALSE}
+environment <- names(environment_hits_split)
+# Loop through each unique species and save the plot
+for (i in seq_along(environment)) {
+  environment_name <- environment[i]
+  environment_data <- environment_hits_split[[i]]
+
+  plot_map_ggplot(
+    filename = paste0("final_analysis/05_atmMOB_global_maps/", environment_name, "_global_map.png"),
+    data = environment_data,
+    color = color_palette[i %% length(color_palette) + 1], # Cycle through colors if more species than colors
+    title = environment_name
+  )
+}
+```
+
+
+```{r, echo=FALSE}
+# Define the function for plotting
+plot_map_ggplot <- function(filename, data, color_map, title) {
+  # Convert the world map to a data frame
+  world_map <- map_data("world")
+  # Create the plot
+  p <- ggplot() +
+    geom_polygon(data = world_map, aes(x = long, y = lat, group = group),
+                 fill = "#B8BCBC", color = NA) +
+    geom_point(data = data, aes(x = Longitude, y = Latitude, color = Environmental_Category),
+               size = 1.5) +
+    scale_color_manual(values = color_map) +
+    labs(title = title, color = "Environment Category") +
+    theme_bw() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      legend.position = "right"
+    )
+  # Save the plot
+  ggsave(filename, plot = p, width = 16, height = 9, dpi = 300)
+}
+# Create a color palette
+color_palette <- brewer.pal(10, "Dark2")
+# Adjust the transparency of the colors
+color_palette <- adjustcolor(color_palette, alpha.f = 0.75)
+# Assuming all data frames have the same set of environment categories
+all_categories <- unique(unlist(lapply(species_hits_split, function(df) df$Environmental_Category)))
+# Create a mapping from environment categories to colors
+color_map <- setNames(color_palette[seq_along(all_categories)], all_categories)
+# Loop through each species in the list and save the plot
+species_names <- names(species_hits_split)
+for (i in seq_along(species_hits_split)) {
+  species_name <- species_names[i]
+  species_data <- species_hits_split[[i]]
+  
+  plot_map_ggplot(
+    filename = paste0("final_analysis/05_atmMOB_global_maps/test/", species_name, "_global_map.png"),
+    data = species_data,
+    color_map = color_map,
+    title = species_name
+  )
+}
+```
+
+
+
+## Split data frame according to species
+```{r}
+species_hits_split_unique <- unique_hits %>%
+  split(.$subject)
+```
+
+### Save unique hits species plots
+```{r, echo=FALSE}
+species_names <- names(species_hits_split_unique)
+# Loop through each unique species and save the plot
+for (i in seq_along(species_names)) {
+  species_name <- species_names[i]
+  species_data <- species_hits_split_unique[[i]]
+
+  plot_map_ggplot(
+    filename = paste0("final_analysis/05_atmMOB_global_maps/unique_hits/", species_name, "unique_hits_global_map.png"),
+    data = species_data,
+    color = color_palette[i %% length(color_palette) + 1], # Cycle through colors if more species than colors
+    title = species_name
+  )
+}
+```
+
+
+
