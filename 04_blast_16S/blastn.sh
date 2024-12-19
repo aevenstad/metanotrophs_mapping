@@ -20,7 +20,7 @@ module load BLAST+/2.14.1-gompi-2023a
 
 # Set variables
 FASTA_PATH=/cluster/work/users/andreeve/methanotrophs/$1
-DB_PATH=/cluster/projects/nn9549k/Andreas/methanotroph_project/16S_methanotrophs/16S_methanotrophs
+DB_PATH=/cluster/projects/nn9549k/Andreas/methanotroph_project/16S_methanotrophs/blastdbs/16S_methanotrophs
 OUT_DIR=/cluster/work/users/andreeve/methanotrophs/blast_16S/$2
 DB_NAME=$(basename ${DB_PATH})
 
